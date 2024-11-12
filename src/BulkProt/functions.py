@@ -144,18 +144,17 @@ def queries_to_table(base, query, organism_id):
     for attempt in range(5):
         try:
             response = requests.get(rest_url)
-            break
         except requests.exceptions.ConnectionError:
             continue
-    if response.status_code == 200:
-        return pd.read_csv(io.StringIO(response.text), 
-                           sep = '\t')
-    else:
-        raise ValueError(f'The uniprot API returned a status code of {response.status_code}.  '\
-                         'This was not 200 as expected, which may reflect an issue '\
-                         f'with your query:  {query}.\n\nSee here for more '\
-                         'information: https://www.uniprot.org/help/rest-api-headers.  '\
-                         f'Full url: {rest_url}')
+        if response.status_code == 200:
+            return pd.read_csv(io.StringIO(response.text), 
+                               sep = '\t')
+        else:
+            raise ValueError(f'The uniprot API returned a status code of {response.status_code}.  '\
+                             'This was not 200 as expected, which may reflect an issue '\
+                             f'with your query:  {query}.\n\nSee here for more '\
+                             'information: https://www.uniprot.org/help/rest-api-headers.  '\
+                             f'Full url: {rest_url}')
 
 
 def build_dir(filepath):
