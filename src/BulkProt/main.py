@@ -4,8 +4,8 @@ Created on Mon Oct 14 21:57:56 2024
 
 @author: u03132tk
 """
-from cli import read_args, check_args
-from functions import BulkProt
+from BulkProt.cli import read_args, check_args
+from BulkProt.functions import BulkProt
 import time
 
 def main(arg_list: list[str] | None = None):
@@ -23,5 +23,5 @@ def main(arg_list: list[str] | None = None):
     parser.exit(f'Successfully completed run in {int(time.time() - start)} '\
                 'seconds - thank you for using BulkProt')
     
-if __name__ == '__main__':
-    main()
+#if __name__ == '__main__':
+#    main()

@@ -139,8 +139,14 @@ def df_to_query(df):#, gene_only = True):
     return query
 
 def queries_to_table(base, query, organism_id):
-    rest_url = base + f'query=(({query})AND(organism_id:{organism_id}))'
-    response = requests.get(rest_url)
+    rest_url = base + f'query=({query})AND(organism_id:{organism_id})'
+    print (f'REST URL:  {rest_url}')
+    for attempt in range(5):
+        try:
+            response = requests.get(rest_url)
+            break
+        except requests.exceptions.ConnectionError:
+            continue
     if response.status_code == 200:
         return pd.read_csv(io.StringIO(response.text), 
                            sep = '\t')
@@ -209,7 +215,9 @@ def BulkProt(filepath : str, fields, organism_id, seed_only, excel_compatible):
     dropped_all = []  
     url_base = f'https://rest.uniprot.org/uniprotkb/stream?fields={fields}&format=tsv&'    
     #read in data
+    new_dir = build_dir(filepath)
     table = pd.read_csv(filepath, header = None)
+    #TODO check queries are unique
     num_rows_pre = {'dropped' : 0,
                 'filtered' : 0,
                 'main' : 0,
@@ -316,7 +324,7 @@ def BulkProt(filepath : str, fields, organism_id, seed_only, excel_compatible):
     print (num_rows_post)
     #Concatenate all dataframes and write to CSV format in a input-specific 
     #results dir 
-    new_dir = build_dir(filepath)
+    
     for name, df_list, path in [('seed', seed_all, f'{new_dir}/seed.csv'),
                                 ('main', main_all, f'{new_dir}/main.csv'),
                                 ('filtered', filtered_all, f'{new_dir}/filtered.csv'),
