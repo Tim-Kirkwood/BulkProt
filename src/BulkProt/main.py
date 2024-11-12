@@ -19,7 +19,8 @@ def main(arg_list: list[str] | None = None):
              args.fields,#.split(','), 
              args.organism_id,
              args.seed_only,
-             args.excel_compatible)
+             args.excel_compatible,
+             args.quick)
     parser.exit(f'Successfully completed run in {int(time.time() - start)} '\
                 'seconds - thank you for using BulkProt')
     

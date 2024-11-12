@@ -205,7 +205,8 @@ def update_cols_inplace(df, col_map):
 #     return pd.DataFrame([[message]*len(df.columns)],
 #                         columns = df.columns)
 
-def BulkProt(filepath : str, fields, organism_id, seed_only, excel_compatible):
+def BulkProt(filepath : str, fields, organism_id, seed_only, excel_compatible, 
+             quick):
     
     #initialise super lists and constants
     error_message = 'No UniprotKB hits'
@@ -213,7 +214,12 @@ def BulkProt(filepath : str, fields, organism_id, seed_only, excel_compatible):
     main_all = []
     filtered_all = []
     dropped_all = []  
-    url_base = f'https://rest.uniprot.org/uniprotkb/stream?fields={fields}&format=tsv&'    
+    if quick:
+        api_func = 'search'
+    else:
+        api_func = 'stream'
+        
+    url_base = f'https://rest.uniprot.org/uniprotkb/{api_func}?fields={fields}&format=tsv&'    
     #read in data
     new_dir = build_dir(filepath)
     table = pd.read_csv(filepath, header = None)

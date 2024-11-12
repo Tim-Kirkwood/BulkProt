@@ -51,7 +51,11 @@ def read_args(arg_list: list[str] | None = None):
                         help = '''If set, and you include a sequence field, then 
                         sequence will be truncated to 32000 chars (the maximum
                         number of chars in an excel cell).''')
-    
+    parser.add_argument("-q", 
+                        "--quick", 
+                        action = 'store_true',
+                        help = '''If set, will run much faster, but a single query 
+                        within your CSV of queries can only return up to 500 results.''')
     parser.add_argument("-sd", 
                         "--seed_only", 
                         action = 'store_true',
