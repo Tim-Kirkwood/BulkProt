@@ -11,6 +11,7 @@ import numpy as np
 import os
 import time
 import copy
+from pandas.api.types import is_string_dtype
 '''
 future plans:
     at some point would be good to add format options etc rather than hard coding
@@ -111,20 +112,17 @@ def clean_proteins(df, exclude_ec = True, exclude_specific = []):#['NAD(+)']):
             simple_name = remove_square_bracket_info(hit_proteins)
             split_proteins = split_string(simple_name)
             clean_proteins += [i for i in split_proteins if i not in exclude_specific]
-                               #include space as protein names can have brackets eg Delta(4)-3-oxosteroid 5-beta-reductase
-            #print (clean_proteins)
     #dont include ec numbers - these refer to reactions not proteins, so potential for false positives
     if exclude_ec:
         clean_proteins = [p for p in clean_proteins if not is_ec(p)]
     
-    #print (clean_proteins)
     return set(clean_proteins)
 
 def clean_genes(df, exclude_specific = []):
     genes = []
     for hit_genes in df['Gene Names']:
-        if not hit_genes is np.nan:
-            genes += [i for i in hit_genes.split(' ') if i not in exclude_specific]
+        if not pd.isna(hit_genes):
+            genes += [i for i in hit_genes.split(' ') if i not in exclude_specific] 
     return set(genes) 
 
 def df_to_query(df):#, gene_only = True):
@@ -167,7 +165,7 @@ def get_drop_indexes(df_seed, df_main):
     seed_genes = clean_genes(df_seed)
     drop_indexes = []
     for index, row in enumerate(df_main['Gene Names']):
-        if row is np.nan:
+        if pd.isna(row):
             #keep for manual checking
             continue
         genes = set(row.split(' '))
@@ -179,7 +177,6 @@ def get_drop_indexes(df_seed, df_main):
 def update_cols_inplace(df, col_map):
     num_row = len(df.index)
     num_col = len(df.columns)
-    #print(df)
     for col, val in col_map.items():
         df.insert(0, col,'')
         #you know col index is 0 as you just added it
@@ -190,143 +187,146 @@ def update_cols_inplace(df, col_map):
     #print(df)
     assert num_row == len(df.index)
     assert num_col == len(df.columns) - len(col_map)
-# def check_df(df, size):
-#     return {'no_hits' : len(df.index) == 0,
-#             'too_many_hits' : len(df.index) == size}
 
-# def update_bad_df(df, status):
-#     #not(0 and 0) == 1, not 0 and 0 == 0
-#     assert not (status['no_hits'] and status['too_many_hits'])
-#     if status['no_hits']:
-#         message = 'No UniprotKB hits'
-#     elif status['too_many_hits']:
-#         message = 'Too many UniprotKB hits - make this query more stringent'
-#     return pd.DataFrame([[message]*len(df.columns)],
-#                         columns = df.columns)
-
-def BulkProt(filepath : str, fields, organism_id, seed_only, excel_compatible, 
-             quick):
-    
-    #initialise super lists and constants
-    error_message = 'No UniprotKB hits'
-    seed_all = []
-    main_all = []
-    filtered_all = []
-    dropped_all = []  
+def build_url_base(quick, fields):
     if quick:
         api_func = 'search'
     else:
         api_func = 'stream'
-        
-    url_base = f'https://rest.uniprot.org/uniprotkb/{api_func}?fields={fields}&format=tsv&'    
+    url_base = f'https://rest.uniprot.org/uniprotkb/{api_func}?fields={fields}&format=tsv&'  
+    return url_base
+
+def check_input(table):
+    one_col = len(table.columns) == 1 
+    if not one_col:
+        msg = "input table has multiple columns (you should check for whitespace chars)"
+        raise ValueError(msg)    
+    all_values = list(table.iloc[:,0])
+    unique_values = len(all_values) == len(set(all_values))
+    if not unique_values:
+        redundant_values = [i for i in set(all_values) if all_values.count(i) > 1]
+        msg = f"input table has non-unique queries - {redundant_values})"
+        raise ValueError(msg)
+
+def process_query(input_csv_row, url_base, organism_id, seed_only):
+    #if there are no hits following seed or main search
+    error_message = 'No UniprotKB hits'
+    
+    #Initialise variables - sometimes they will be updated, othertimes they 
+    #will not (e.g. when their are no hits to a given seed query, seed will 
+    #be 'No UniprotKB hits', main/filtered will be None, main_query will be 
+    #'Not performed').
+    df_main = None
+    df_filtered = None
+    df_dropped = None
+    seed_query = input_csv_row[0]
+    #less redundant code if you just define at the start and update
+    main_query = 'Not performed'  
+    
+    #send user query to uniprot and convert response to SEED dataframe 
+    df_seed = queries_to_table(url_base, 
+                               input_csv_row[0], 
+                               organism_id)
+    
+    #check you have hits - if not, (i) update dataframe to reflect issues 
+    #and (ii) do not make MAIN and FILTERED dataframes
+    if len(df_seed.index) == 0:
+        df_seed = pd.DataFrame([[error_message]*len(df_seed.columns)],
+                                 columns = df_seed.columns)
+        if not seed_only:
+            print ('SEED QUERY: Error - no hits\n'\
+                   'MAIN QUERY: Not performed\n'\
+                   'FILTERED: Not performed')
+                
+    #If the SEED dataframe is ok 
+    else:
+        #and the user wants to perform a MAIN search
+        if not seed_only:
+            
+            #convert the SEED data to a new query
+            main_query = df_to_query(df_seed)
+            print (f'MAIN QUERY: {main_query}')
+            
+            #send query to uniprot and convert response to MAIN dataframe 
+            df_main = queries_to_table(url_base, main_query, organism_id)
+    
+            #check if the MAIN dataframe is acceptable - if not, (i) update 
+            #dataframe in place to reflect issues and (ii) do not make FILTERED 
+            #dataframe.  
+            if len(df_main.index) == 0:
+                df_main = pd.DataFrame([[error_message]*len(df_main.columns)],
+                                         columns = df_main.columns)
+                print ('MAIN QUERY: Error - no hits \n'\
+                       'FILTERED: Not performed')
+                    
+            #Otherwise, filter MAIN dataframe by removing rows that
+            #do not have a SEED gene or protein.  Surviving rows are written 
+            #to FILTERED dataframe, dropped rows are written to DROPPED
+            #dataframe
+            else:
+                drop_indexes = get_drop_indexes(df_seed, df_main)
+                df_filtered = df_main.drop(drop_indexes)
+                df_dropped = df_main.loc[drop_indexes]
+                print (f'FILTERED: Dropped {len(drop_indexes)} out of '\
+                       f'{len(df_main.index)} entries.  New df has '\
+                       f'{len(df_filtered.index)} entries.')
+    return {'df_seed' : df_seed,
+            'df_main' : df_main,
+            'df_filtered' : df_filtered,
+            'df_dropped' : df_dropped,
+            'seed_query' : seed_query,
+            'main_query' : main_query}
+
+
+def BulkProt(filepath : str, fields, organism_id, seed_only, excel_compatible, 
+             quick):
+    
+    #initialise lists and constants
+    seed_all = []
+    main_all = []
+    filtered_all = []
+    dropped_all = []  
+    url_base = build_url_base(quick, fields)  
+    
     #read in data
     new_dir = build_dir(filepath)
     table = pd.read_csv(filepath, header = None)
-    #TODO check queries are unique
-    num_rows_pre = {'dropped' : 0,
-                'filtered' : 0,
-                'main' : 0,
-                'seed' : 0}
-    num_rows_post = {'dropped' : 0,
-                'filtered' : 0,
-                'main' : 0,
-                'seed' : 0}
+    check_input(table)
+            
     #process data
-    start = time.time()
     for row_index, input_csv_row in table.iterrows():
-        if row_index % 500 == 0:
-            print (f'Done {row_index} queries ({int(time.time() - start)} seconds)')
-        #set these as None in the loop - if they are not reset then they carry 
-        #over the loops (e.g. df_main)
-        df_main = None
-        df_filtered = None
-        df_dropped = None
-        main_query = 'Not performed' #needs to be initialised for general_col_map 
-        print (f'USER QUERY: {input_csv_row[0]}')
         
-        #send user query to uniprot and convert response to SEED dataframe 
-        df_seed = queries_to_table(url_base, 
-                                   input_csv_row[0], 
-                                   organism_id)
-        #print(df_seed.index)
-        #check you have hits - if not, (i) update dataframe to reflect issues 
-        #and (ii) do not make MAIN and FILTERED dataframes
-        if len(df_seed.index) == 0:#seed_status['no_hits'] or seed_status['too_many_hits']:
-            df_seed = pd.DataFrame([[error_message]*len(df_seed.columns)],
-                                     columns = df_seed.columns)
-            if not seed_only:
-                print ('SEED QUERY: Error - no hits\n'\
-                       'MAIN QUERY: Not performed\n'\
-                       'FILTERED: Not performed')
-                    
-        #If the SEED dataframe is ok 
-        else:
-            #and the user wants to perform a MAIN search
-            if not seed_only:
-                
-                #convert the SEED data to a new query
-                main_query = df_to_query(df_seed)
-                print (f'MAIN QUERY: {main_query}')
-                
-                #send query to uniprot and convert response to MAIN dataframe 
-                df_main = queries_to_table(url_base, main_query, organism_id)
-                #print(df_main.index)
-                #check if the MAIN dataframe is acceptable - if not, (i) update 
-                #dataframe in place to reflect issues and (ii) do not make FILTERED 
-                #dataframe.  Otherwise, filter MAIN dataframe by removing rows that
-                #do not have a SEED gene or protein.  Surviving rows are written 
-                #to FILTERED dataframe, dropped rows are written to DROPPED
-                #dataframe
-                if len(df_main.index) == 0:
-                    df_main = pd.DataFrame([[error_message]*len(df_main.columns)],
-                                             columns = df_main.columns)
-                    print ('MAIN QUERY: Error - no hits \n'\
-                           'FILTERED: Not performed')
-                else:
-                    drop_indexes = get_drop_indexes(df_seed, df_main)
-                    df_filtered = df_main.drop(drop_indexes)
-                    #print (df_filtered.index)
-                    df_dropped = df_main.loc[drop_indexes]
-                    print (f'FILTERED: Dropped {len(drop_indexes)} out of {len(df_main.index)} entries.  New df has {len(df_filtered.index)} entries.')
+        
+        
+        print (f'\nUSER QUERY: {input_csv_row[0]}')
+        
+        #get seed, main, filtered and dropped tables for this query
+        query_results = process_query(input_csv_row, url_base, organism_id, seed_only)
+        
+        #assign data to vars
+        seed_query = query_results['seed_query']
+        main_query = query_results['main_query']
+        df_main = query_results['df_main']
+        df_filtered = query_results['df_filtered']
+        df_dropped = query_results['df_dropped']
+        df_seed = query_results['df_seed']
+        
         
         #update dataframes with SEED and MAIN query details.  Add one column each,
         #and write query to first row in the column.  Leave other columns blank 
         #to aid with manual curation of the results.  Add formatted dfs to their
         #respective master lists
-        seed_col_map = {'Seed query' : input_csv_row[0]
-                        }
+        seed_col_map = {'Seed query' : seed_query}
         general_col_map = {'Main query' : main_query,
-                           'Seed query' : input_csv_row[0]
-                           }
-        for name, df, col_map, parental_list in [('dropped',df_dropped, general_col_map, dropped_all), 
-                                                 ('filtered',df_filtered, general_col_map, filtered_all),
-                                                 ('main',df_main, general_col_map, main_all),
-                                                 ('seed', df_seed, seed_col_map, seed_all)]:
+                           'Seed query' : seed_query}
+        for df, col_map, parental_list in [(df_dropped, general_col_map, dropped_all), 
+                                           (df_filtered, general_col_map, filtered_all),
+                                           (df_main, general_col_map, main_all),
+                                           (df_seed, seed_col_map, seed_all)]:
             if df is not None:
-                #print(name)
-                #pre_df = len(df.index)
-                #print (f'PRE {name}: {len(df.columns)} cols, {len(df.index)} rows')
-                #pre_df = copy.deepcopy(df)
-                #pre_df.to_csv('D:/BulkProt/src/BulkProt/FAIL_pre_df.csv')
-                num_rows_pre[name] += len(df.index)
-                #this is adding a row in certain situations - not sure why
                 update_cols_inplace(df, col_map)
-                #print (f'POST {name}: {len(df.columns)} cols, {len(df.index)} rows')
-                #post = len(df.index)
-                #post_df = copy.deepcopy(df)
-                #post_df.to_csv('D:/BulkProt/src/BulkProt/FAIL_post_df.csv')
-                num_rows_post[name] += len(df.index)
-                #if name != 'dropped':
-                    #try:
-                    #    assert len(pre_df.index) == len(post_df.index)
-                    #except AssertionError as e:
-                    #    print (f'PRE:\n\n{pre_df}\n\nPOST:\n\n{post_df}\n\nmain_query \n\n{main_query} \n\ncol_map\n\n{col_map}')
-                    #    
-                    #    raise e
                 parental_list += [df]
-        print ()
-    print (num_rows_pre) 
-    print (num_rows_post)
+
     #Concatenate all dataframes and write to CSV format in a input-specific 
     #results dir 
     
@@ -335,20 +335,14 @@ def BulkProt(filepath : str, fields, organism_id, seed_only, excel_compatible,
                                 ('filtered', filtered_all, f'{new_dir}/filtered.csv'),
                                 ('dropped', dropped_all, f'{new_dir}/dropped.csv')]:
         if len(df_list) > 0:
-            print (f'Writing results to {path}')
-            #TODO 
-            print (name.upper())
-            print (f'number of rows before concat {sum([len(d.index) for d in df_list])}')
             df = pd.concat(df_list)
-            print (f'number of rows after concat {len(df.index)}')
+            print (f'{name.upper()} - Writing {len(df.index)} rows to {path}')
             if excel_compatible:
-                #https://stackoverflow.com/a/49451329/11357695
-                if 'Sequence' in df.columns:
-                    #https://stackoverflow.com/a/79095162/11357695
-                    df['Sequence'] = df['Sequence'].str.slice(0,32000)
-            print (f'number of rows after excel formatting {len(df.index)}')
+                print ('Trimming all values with <32000 chars')
+                #https://stackoverflow.com/a/45270483/11357695 - note applymap replaced by map
+                df = df.map(lambda x: x[0:32000] if isinstance(x, str) else x)
             df.to_csv(path)
-            print (f'{name} {len(df.index)}')
+
     return {'seed_all' : seed_all, 
             'main_all' : main_all, 
             'filtered_all' : filtered_all, 
