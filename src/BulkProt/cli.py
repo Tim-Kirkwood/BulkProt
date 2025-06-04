@@ -4,7 +4,7 @@ Created on Mon Oct 14 21:51:00 2024
 
 @author: u03132tk
 """
-from argparse import ArgumentParser
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 import os
 import pandas as pd
 
@@ -36,7 +36,7 @@ ALLOWED_FIELDS = ["accession", "id", "gene_names", "gene_primary", "gene_synonym
                   "protein_families", "ft_region", "ft_repeat", "ft_zn_fing"]
 
 def read_args(arg_list: list[str] | None = None):
-    parser = ArgumentParser()
+    parser = ArgumentParser(formatter_class = ArgumentDefaultsHelpFormatter)
     parser.add_argument("-csv", 
                         "--csv_path", 
                         type = str,
@@ -68,27 +68,25 @@ def read_args(arg_list: list[str] | None = None):
                                   'length,sequence,go_p,go_c,go,go_f,ft_topo_dom,'\
                                   'ft_transmem,cc_subcellular_location,ft_intramem',
                         metavar='\b',
-                        help = f'''(OPTIONAL - default is accession,id,protein_name,
-                        gene_names,organism_name,length,sequence,go_p,go_c,go,go_f,
-                        ft_topo_dom,ft_transmem,cc_subcellular_location,ft_intramem) 
-                        Result fields you would like to store as columns 
-                        in the output CSV (see here: https://www.uniprot.org/help/return_fields).  
+                        help = '''(OPTIONAL)Result fields you would like to store as columns 
+                        in the output CSV.  Full list of available entries is at
+                        https://www.uniprot.org/help/return_fields ("Returned Field").  
                         Input fields should be seperated by a 
-                        comma with no spaces (e.g. "field1,field2,...").  
-                        
-                        POSSIBLE fields are: 
-                        {','.join(ALLOWED_FIELDS)}''')
+                        comma with no spaces (e.g. "field1,field2,...").  For example, 
+                        if you only want Entry and Entry Name for each output entry, 
+                        put "accession,id".''')
     parser.add_argument("-o", 
                         "--organism_id", 
                         type = int,
                         required=False,
                         default = 9606, #human
                         metavar='\b',
-                        help = '''(OPTIONAL - default is 9606, which codes for 
-                        homo sapiens) All main search results will be in this organism.  
-                        NOTE: This has no effect on the seed search unless you specify 
-                        "AND(organism_id:{organism_id})" in the query taken from your 
-                        CSV.  See here for all available IDs: 
+                        help = '''(OPTIONAL) Default ID codes for 
+                        homo sapiens. All seed and main search results will be 
+                        specific to this organism.  Including a specific organism 
+                        as part of your csv queries may cause an error if it 
+                        conflicts with the organism specified here. See here for 
+                        all available IDs: 
                         https://www.uniprot.org/taxonomy/?query=*''')
     args = parser.parse_args(arg_list)
     return args, parser
