@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "BulkProt"
+version = "0.0.1"
+requires-python = "<= 3.12.9,>=3.10.0"
+dependencies = [
+  "numpy>=1.26,<2.0",
+  "requests>=2.32,<2.33",
+  "pandas>=1.5,<2.0"
+]
+authors = [{name = "Timothy Kirkwood", email = "tdjkirkwood@hotmail.com"}]
+maintainers = [{name = "Timothy Kirkwood", email = "tdjkirkwood@hotmail.com"}]
+description = "A command line app for scalable, semi-supervised Uniprot querying"  
+readme = "README.md"
+license = {file = "LICENSE"}
+keywords = ["uniprot", "protein", "proteomics", "database", "bioinformatics"]
+classifiers = ["Development Status :: 4 - Beta",
+  	       "Programming Language :: Python :: 3",
+	       "License :: OSI Approved :: MIT License",
+               "Operating System :: Microsoft :: Windows",
+               "Intended Audience :: Science/Research",
+               "Topic :: Scientific/Engineering :: Bio-Informatics"]
+
+[project.urls]
+Homepage = "https://github.com/Tim-Kirkwood/BulkProt"
+Issues = 'https://github.com/Tim-Kirkwood/BulkProt/issues'
+
+[project.scripts]
+BulkProt = "BulkProt.main:main"

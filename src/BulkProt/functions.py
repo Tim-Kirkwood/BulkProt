@@ -7,11 +7,7 @@ This is a temporary script file.
 import pandas as pd
 import requests
 import io
-import numpy as np
 import os
-import time
-import copy
-from pandas.api.types import is_string_dtype
 '''
 future plans:
     at some point would be good to add format options etc rather than hard coding
@@ -27,9 +23,14 @@ future plans:
     #for user search term and expanded search term
     #TODO def sanitise input - check all things are recognised. I think this is done 
     #already via the API fail codes but could be worth checking for white space etc 
+    
+    add in name parsing via json
+    
+    add option to cull cdna 
+    add update option as uniprt can change a lot.  run search as normal, compare new filtered table vs supplied filtered table, output additional files of old entries that are not in new filtered table (i.e. deleted), new entries in new table (e.g. maybe info got updated and improved main search), entries with updated information.
 '''
 
-#TODO add pattern options etc to the cli so user has control
+#TODO add in a json format output, parse this for protein/gene names - keep tsv output though
 
 def split_string(s):
     #it is assumed that s is formatted as 'n1 (n2) (n3)...'
@@ -70,17 +71,19 @@ def remove_square_bracket_info(s, patterns = ['[Includes:', '[Cleaved into:']):
             if s[i:i+len(pattern)] == pattern:
                 open_bracket = True
             if open_bracket:
+                delete_indicies +=[i]#add final close bracket
                 if c == '[':
                     internal_brackets += 1 
                 elif c == ']':
+                    assert internal_brackets != 0
                     internal_brackets -= 1
                     if internal_brackets == 0:
                         open_bracket = False
-                        delete_indicies +=[i]#add final close bracket
+                
             #CODE SMELL - delete 'if open bracket' i think, then can also delete 
             #the extra 'delete indicies' add as it will be executred in the loop
-            if open_bracket:
-                delete_indicies += [i]
+            #if open_bracket:
+            #    delete_indicies += [i]
         assert not open_bracket
         assert internal_brackets == 0
         return delete_indicies
@@ -108,7 +111,7 @@ def is_ec(s):
 def clean_proteins(df, exclude_ec = True, exclude_specific = []):#['NAD(+)']):
     clean_proteins = []
     for hit_proteins in df['Protein names']:
-        if not hit_proteins is np.nan:
+        if not pd.isna(hit_proteins):
             simple_name = remove_square_bracket_info(hit_proteins)
             split_proteins = split_string(simple_name)
             clean_proteins += [i for i in split_proteins if i not in exclude_specific]
@@ -125,13 +128,12 @@ def clean_genes(df, exclude_specific = []):
             genes += [i for i in hit_genes.split(' ') if i not in exclude_specific] 
     return set(genes) 
 
-def df_to_query(df):#, gene_only = True):
-    exclude_specific = ['putative', 'NAD(+)', 'variant','protein']
+def df_to_query(df, exclude_specific = ['putative', 'NAD(+)', 'variant','protein']):#, gene_only = True):
     cl_genes = clean_genes(df, exclude_specific)
-    queries = [f'(gene:"{gene.strip()}")OR' for gene in cl_genes]
+    queries = [f'(gene:"{gene.strip().replace("#", "%23")}")OR' for gene in cl_genes]
     #if not gene_only:
     cl_proteins = clean_proteins(df, exclude_specific)
-        #'#' was breaking my url 
+    #'#' was breaking my url 
     queries += [f'(protein_name:"{protein.strip().replace("#", "%23")}")OR' for protein in cl_proteins]
     query = ''.join(queries)[0:-2] #remove final OR
     return query
@@ -148,7 +150,8 @@ def queries_to_table(base, query, organism_id):
             return pd.read_csv(io.StringIO(response.text), 
                                sep = '\t')
         else:
-            raise ValueError(f'The uniprot API returned a status code of {response.status_code}.  '\
+            print (f'response code {response.status_code} - trying again :(')
+    raise ValueError(f'The uniprot API returned a status code of {response.status_code}.  '\
                              'This was not 200 as expected, which may reflect an issue '\
                              f'with your query:  {query}.\n\nSee here for more '\
                              'information: https://www.uniprot.org/help/rest-api-headers.  '\
@@ -244,6 +247,9 @@ def process_query(input_csv_row, url_base, organism_id, seed_only):
         if not seed_only:
             
             #convert the SEED data to a new query
+            #TODO this is where you need to change.  add in a build_main_query 
+            #function which takes in a url, processes json data, and returns a 
+            #list of gene and protein names
             main_query = df_to_query(df_seed)
             print (f'MAIN QUERY: {main_query}')
             
@@ -303,40 +309,34 @@ def BulkProt(filepath : str, fields, organism_id, seed_only, excel_compatible,
         #get seed, main, filtered and dropped tables for this query
         query_results = process_query(input_csv_row, url_base, organism_id, seed_only)
         
-        #assign data to vars
-        seed_query = query_results['seed_query']
-        main_query = query_results['main_query']
-        df_main = query_results['df_main']
-        df_filtered = query_results['df_filtered']
-        df_dropped = query_results['df_dropped']
-        df_seed = query_results['df_seed']
-        
-        
         #update dataframes with SEED and MAIN query details.  Add one column each,
         #and write query to first row in the column.  Leave other columns blank 
         #to aid with manual curation of the results.  Add formatted dfs to their
         #respective master lists
-        seed_col_map = {'Seed query' : seed_query}
-        general_col_map = {'Main query' : main_query,
-                           'Seed query' : seed_query}
-        for df, col_map, parental_list in [(df_dropped, general_col_map, dropped_all), 
-                                           (df_filtered, general_col_map, filtered_all),
-                                           (df_main, general_col_map, main_all),
-                                           (df_seed, seed_col_map, seed_all)]:
+        seed_col_map = {'Seed query' : query_results['seed_query']}
+        general_col_map = {'Main query' : query_results['main_query'],
+                           'Seed query' : query_results['seed_query']}
+        zipped_data = [(query_results['df_dropped'], general_col_map, dropped_all), 
+                       (query_results['df_filtered'], general_col_map, filtered_all),
+                       (query_results['df_main'], general_col_map, main_all),
+                       (query_results['df_seed'], seed_col_map, seed_all)
+                       ]
+        for df, col_map, parental_list in zipped_data:
             if df is not None:
                 update_cols_inplace(df, col_map)
                 parental_list += [df]
 
     #Concatenate all dataframes and write to CSV format in a input-specific 
     #results dir 
-    
-    for name, df_list, path in [('seed', seed_all, f'{new_dir}/seed.csv'),
-                                ('main', main_all, f'{new_dir}/main.csv'),
-                                ('filtered', filtered_all, f'{new_dir}/filtered.csv'),
-                                ('dropped', dropped_all, f'{new_dir}/dropped.csv')]:
+    zipped_data = [(seed_all, f'{new_dir}/seed.csv'),
+                   (main_all, f'{new_dir}/main.csv'),
+                   (filtered_all, f'{new_dir}/filtered.csv'),
+                   (dropped_all, f'{new_dir}/dropped.csv')
+                   ]
+    for df_list, path in zipped_data:
         if len(df_list) > 0:
             df = pd.concat(df_list)
-            print (f'{name.upper()} - Writing {len(df.index)} rows to {path}')
+            print (f'Writing {len(df.index)} rows to {path}')
             if excel_compatible:
                 print ('Trimming all values with <32000 chars')
                 #https://stackoverflow.com/a/45270483/11357695 - note applymap replaced by map

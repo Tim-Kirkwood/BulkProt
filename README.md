@@ -1,2 +1,1 @@
-# BulkProt
-Bulk uniprot searches
+# NOTE - TODO
