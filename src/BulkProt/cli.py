@@ -68,7 +68,7 @@ def read_args(arg_list: list[str] | None = None):
                                   'length,sequence,go_p,go_c,go,go_f,ft_topo_dom,'\
                                   'ft_transmem,cc_subcellular_location,ft_intramem',
                         metavar='\b',
-                        help = '''(OPTIONAL)Result fields you would like to store as columns 
+                        help = '''(OPTIONAL) Result fields you would like to store as columns 
                         in the output CSV.  Full list of available entries is at
                         https://www.uniprot.org/help/return_fields ("Returned Field").  
                         Input fields should be seperated by a 
