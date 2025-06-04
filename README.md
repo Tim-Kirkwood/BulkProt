@@ -3,6 +3,10 @@ UniProt is a great database, but there limited options for bulk searching.  User
 
 BulkProt fills this gap by allowing users to specify a list of search terms in a CSV input file, and presents the output of multiple searches as a single consolidated CSV for easy analysis.  It also allows users to systematically search for entries that are likely to be equivalent to their search term, but are hard to detect via traditional searches due to inconsistent naming conventions.
 
+# Approach
+
+
+
 # Tutorial
 ```
 usage: BulkProt [-h] -csv [-e] [-q] [-sd] [-f] [-o]
